@@ -1,11 +1,12 @@
-;;; sudo-edit.el --- Open files as another user       -*- lexical-binding: t -*-
+;;; doas-edit.el --- Open files as another user       -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2014 Nathaniel Flath <flat0103@gmail.com>
+;; Copyright (C) 2020 Cem Keylan      <cem@ckyln.com>
 
-;; Author: Nathaniel Flath <flat0103@gmail.com>
-;; URL: https://github.com/nflath/sudo-edit
+;; Author: Cem Keylan
+;; URL: https://github.com/cemkeylan/doas-edit
 ;; Keywords: convenience
-;; Version: 0.0.1a
+;; Version: 0.0.1
 ;; Package-Requires: ((emacs "24") (cl-lib "0.5"))
 
 ;; This file is not part of GNU Emacs.
@@ -29,19 +30,21 @@
 
 ;;; Commentary:
 
+;; This is a modified version of sudo-edit to work with doas.
+;;
 ;; This package allows to open files as another user, by default "root":
 ;;
-;;     `sudo-edit'
+;;     `doas-edit'
 ;;
 ;; Suggested keybinding:
 ;;
-;;     (global-set-key (kbd "C-c C-r") 'sudo-edit)
+;;     (global-set-key (kbd "C-c C-r") 'doas-edit)
 ;;
 ;; Installation:
 ;;
 ;; To use this mode, put the following in your init.el:
 ;;
-;;     (require 'sudo-edit)
+;;     (require 'doas-edit)
 
 ;;; Code:
 (eval-when-compile
@@ -89,23 +92,23 @@ attention to case differences."
       "Check whether STRING is either empty or only whitespace."
       (string-match-p "\\`[ \t\n\r]*\\'" string))))
 
-(defgroup sudo-edit nil
+(defgroup doas-edit nil
   "Edit files as another user."
-  :prefix "sudo-edit-"
+  :prefix "doas-edit-"
   :group 'convenience)
 
-(defcustom sudo-edit-user "root"
-  "Default user to edit a file with `sudo-edit'."
+(defcustom doas-edit-user "root"
+  "Default user to edit a file with `doas-edit'."
   :type 'string
-  :group 'sudo-edit)
+  :group 'doas-edit)
 
-(defface sudo-edit-header-face
+(defface doas-edit-header-face
   '((t (:foreground "white" :background "red3")))
   "*Face use to display header-lines for files opened as root."
-  :group 'sudo-edit)
+  :group 'doas-edit)
 
 ;;;###autoload
-(defun sudo-edit-set-header ()
+(defun doas-edit-set-header ()
   "*Display a warning in header line of the current buffer.
 This function is suitable to add to `find-file-hook' and `dired-file-hook'."
   (when (string-equal
@@ -113,37 +116,37 @@ This function is suitable to add to `find-file-hook' and `dired-file-hook'."
          "root")
     (setq header-line-format
           (propertize "--- WARNING: EDITING FILE AS ROOT! %-"
-                      'face 'sudo-edit-header-face))))
+                      'face 'doas-edit-header-face))))
 
 ;;;###autoload
-(define-minor-mode sudo-edit-indicator-mode
+(define-minor-mode doas-edit-indicator-mode
   "Indicates editing as root by displaying a message in the header line."
   :global t
   :lighter nil
-  :group 'sudo-edit
+  :group 'doas-edit
 
-  (if sudo-edit-indicator-mode
+  (if doas-edit-indicator-mode
       (progn
-        (add-hook 'find-file-hook #'sudo-edit-set-header)
-        (add-hook 'dired-mode-hook #'sudo-edit-set-header))
-    (remove-hook 'find-file-hook #'sudo-edit-set-header)
-    (remove-hook 'dired-mode-hook #'sudo-edit-set-header)))
+        (add-hook 'find-file-hook #'doas-edit-set-header)
+        (add-hook 'dired-mode-hook #'doas-edit-set-header))
+    (remove-hook 'find-file-hook #'doas-edit-set-header)
+    (remove-hook 'dired-mode-hook #'doas-edit-set-header)))
 
-(defvar sudo-edit-user-history nil)
+(defvar doas-edit-user-history nil)
 
 ;; NB: TRAMP 2.3.2 introduced `tramp-file-name' struct which offers these
 ;;     functions to access the slots.
 (or (fboundp 'tramp-file-name-domain) (defalias 'tramp-file-name-domain #'ignore))
 (or (fboundp 'tramp-file-name-port) (defalias 'tramp-file-name-port #'ignore))
 
-(defalias 'sudo-edit-make-tramp-file-name
+(defalias 'doas-edit-make-tramp-file-name
   (if (version< tramp-version "2.3.2")
       (with-no-warnings
         (lambda (method user _domain host _port localname &optional hop)
           (tramp-make-tramp-file-name method user host localname hop)))
     #'tramp-make-tramp-file-name))
 
-(defun sudo-edit-tramp-get-parameter (vec param)
+(defun doas-edit-tramp-get-parameter (vec param)
   "Return from tramp VEC a parameter PARAM."
   (or (tramp-get-method-parameter vec param)
       ;; NB: Compatibility old versions of TRAMP 2.2.x shipped with Emacs 24.3
@@ -151,22 +154,22 @@ This function is suitable to add to `find-file-hook' and `dired-file-hook'."
       ;;     parameter as static value defined in `tramp-methods'.
       (ignore-errors (tramp-get-method-parameter (tramp-file-name-method vec) param))))
 
-(defun sudo-edit-out-of-band-ssh-p (filename)
+(defun doas-edit-out-of-band-ssh-p (filename)
   "Check if tramp FILENAME is a out-of-band method and use ssh."
   (or (let ((vec (tramp-dissect-file-name filename)))
-        (and (sudo-edit-tramp-get-parameter vec 'tramp-copy-program)
-             (string-equal (sudo-edit-tramp-get-parameter vec 'tramp-login-program) "ssh")))
+        (and (doas-edit-tramp-get-parameter vec 'tramp-copy-program)
+             (string-equal (doas-edit-tramp-get-parameter vec 'tramp-login-program) "ssh")))
       (tramp-gvfs-file-name-p filename)))
 
-(defun sudo-edit-filename (filename user)
+(defun doas-edit-filename (filename user)
   "Return a tramp edit name for a FILENAME as USER."
   (if (file-remote-p filename)
       (let* ((vec (tramp-dissect-file-name filename))
              ;; XXX: Change to ssh method on out-of-band ssh based methods
-             (method (if (sudo-edit-out-of-band-ssh-p filename)
+             (method (if (doas-edit-out-of-band-ssh-p filename)
                          "ssh"
                        (tramp-file-name-method vec)))
-             (hop (sudo-edit-make-tramp-file-name
+             (hop (doas-edit-make-tramp-file-name
                    method
                    (tramp-file-name-user vec)
                    (tramp-file-name-domain vec)
@@ -180,37 +183,37 @@ This function is suitable to add to `find-file-hook' and `dired-file-hook'."
         (if (and (string= user (tramp-file-name-user vec))
                  (string-match tramp-local-host-regexp (tramp-file-name-host vec)))
             (tramp-file-name-localname vec)
-          (sudo-edit-make-tramp-file-name "sudo" user (tramp-file-name-domain vec) (tramp-file-name-host vec) (tramp-file-name-port vec) (tramp-file-name-localname vec) hop)))
-    (sudo-edit-make-tramp-file-name "sudo" user nil "localhost" nil (expand-file-name filename))))
+          (doas-edit-make-tramp-file-name "doas" user (tramp-file-name-domain vec) (tramp-file-name-host vec) (tramp-file-name-port vec) (tramp-file-name-localname vec) hop)))
+    (doas-edit-make-tramp-file-name "doas" user nil "localhost" nil (expand-file-name filename))))
 
 ;;;###autoload
-(defun sudo-edit (&optional arg)
-  "Edit currently visited file as another user, by default `sudo-edit-user'.
+(defun doas-edit (&optional arg)
+  "Edit currently visited file as another user, by default `doas-edit-user'.
 
 With a prefix ARG prompt for a file to visit.  Will also prompt
 for a file to visit if current buffer is not visiting a file."
   (interactive "P")
   (let ((user (if arg
-                  (completing-read "User: " (and (fboundp 'system-users) (system-users)) nil nil nil 'sudo-edit-user-history sudo-edit-user)
-                sudo-edit-user))
+                  (completing-read "User: " (and (fboundp 'system-users) (system-users)) nil nil nil 'doas-edit-user-history doas-edit-user)
+                doas-edit-user))
         (filename (or buffer-file-name
                       (and (derived-mode-p 'dired-mode) default-directory))))
     (cl-assert (not (string-blank-p user)) nil "User must not be a empty string")
     (if (or arg (not filename))
-        (find-file (sudo-edit-filename (read-file-name (format "Find file (as \"%s\"): " user)) user))
+        (find-file (doas-edit-filename (read-file-name (format "Find file (as \"%s\"): " user)) user))
       (let ((position (point)))
-        (find-alternate-file (sudo-edit-filename filename user))
+        (find-alternate-file (doas-edit-filename filename user))
         (goto-char position)))))
 
 ;;;###autoload
-(defun sudo-edit-find-file (filename)
-  "Edit FILENAME as another user, by default `sudo-edit-user'."
+(defun doas-edit-find-file (filename)
+  "Edit FILENAME as another user, by default `doas-edit-user'."
   (interactive
-   (list (read-file-name (format "Find file (as \"%s\"): " sudo-edit-user))))
-  (cl-assert (not (string-blank-p sudo-edit-user)) nil "User must not be a empty string")
-  (find-file (sudo-edit-filename filename sudo-edit-user)))
+   (list (read-file-name (format "Find file (as \"%s\"): " doas-edit-user))))
+  (cl-assert (not (string-blank-p doas-edit-user)) nil "User must not be a empty string")
+  (find-file (doas-edit-filename filename doas-edit-user)))
 
-(define-obsolete-function-alias 'sudo-edit-current-file 'sudo-edit)
+(define-obsolete-function-alias 'doas-edit-current-file 'doas-edit)
 
-(provide 'sudo-edit)
-;;; sudo-edit.el ends here
+(provide 'doas-edit)
+;;; doas-edit.el ends here

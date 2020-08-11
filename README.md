@@ -1,4 +1,4 @@
-sudo-edit
+doas-edit
 =========
 
-Utilities for opening files with sudo
+Fork of sudo-edit for editing files with doas instead.
